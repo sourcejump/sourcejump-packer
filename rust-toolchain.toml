@@ -1,0 +1,5 @@
+[toolchain]
+channel = "1.99"
+components = ["clippy", "rustfmt"]
+# Release builds: a static Linux binary and a Windows .exe (which needs MinGW: gcc-mingw-w64-x86-64).
+targets = ["x86_64-unknown-linux-musl", "x86_64-pc-windows-gnu"]

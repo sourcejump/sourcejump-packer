@@ -1,0 +1,46 @@
+# Builds sj-pack for Linux and Windows from a version tag (v0.1.0) and publishes them as that tag's release, so
+# the files people download come from this repository's code and nowhere else. Each file gets a SHA-256 sum and
+# a build attestation: `gh attestation verify sj-pack.exe --repo sourcejump/sourcejump-packer` shows the
+# workflow run and commit that built it.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag matches sj-pack's version
+        run: |
+          version=$(grep -m1 '^version' crates/sj-pack/Cargo.toml | cut -d'"' -f2)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, Cargo.toml $version"; exit 1; }
+      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 musl-tools
+      - run: rustup toolchain install
+      - run: cargo test --locked
+      - run: cargo build --locked --release -p sj-pack --target x86_64-unknown-linux-musl --target x86_64-pc-windows-gnu
+      - name: Package
+        run: |
+          folder="sj-pack-$GITHUB_REF_NAME"
+          mkdir "$folder"
+          cp target/x86_64-unknown-linux-musl/release/sj-pack target/x86_64-pc-windows-gnu/release/sj-pack.exe LICENSE \
+            crates/sj-pack/README.txt "$folder/"
+          zip -r "$folder.zip" "$folder"
+          cp "$folder/sj-pack" "$folder/sj-pack.exe" .
+          sha256sum "$folder.zip" sj-pack sj-pack.exe > SHA256SUMS
+      # GitHub attests builds of public repositories only (private ones need Enterprise).
+      - if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            sj-pack-${{ github.ref_name }}.zip
+            sj-pack
+            sj-pack.exe
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes "sj-pack-$GITHUB_REF_NAME.zip" sj-pack sj-pack.exe SHA256SUMS
